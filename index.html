@@ -3,606 +3,621 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>실험 데이터 수집 · 반별 시각화(오프라인)</title>
+  <title>실험 데이터 수집 · 반별 실시간 시각화</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Recharts (UMD) -->
+  <script crossorigin src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+  <!-- Firebase compat (optional, only used if config is provided) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <!-- Babel for JSX in the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#ffffff; --border:#e2e8f0; --accent:#0ea5e9; }
-    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-    .container{max-width:1100px;margin:0 auto;padding:16px}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,.04);padding:16px}
-    .row{display:grid;grid-template-columns:1fr;gap:16px}
-    @media(min-width:1024px){.row{grid-template-columns:1fr 2fr}}
-    h1{font-size:18px;margin:0} h2{font-size:16px;margin:0 0 6px} small{color:var(--muted)}
-    .btn{padding:8px 12px;border-radius:12px;border:1px solid var(--border);background:#fff;cursor:pointer}
-    .btn.primary{background:#0f172a;color:#fff;border-color:#0f172a}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
-    input,select,textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:12px;background:#fff}
-    table{width:100%;border-collapse:collapse} th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
-    .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
-    .flex{display:flex;gap:8px;align-items:center} .space{height:8px}
-    .right{margin-left:auto}
-    .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;place-items:center;padding:16px}
-    .modal.open{display:grid}
-    .modal>.card{max-width:640px;width:100%}
-    canvas{width:100%;height:360px;border:1px solid var(--border);border-radius:12px;background:#fff}
-    .header{position:sticky;top:0;background:#ffffffcc;backdrop-filter:saturate(1.1) blur(6px);border-bottom:1px solid var(--border);z-index:10}
-    .header .container{display:flex;align-items:center;gap:12px;padding-top:10px;padding-bottom:10px}
-    .logo{width:36px;height:36px;border-radius:12px;background:#0f172a;color:#fff;display:grid;place-items:center;font-weight:700}
+    html, body { height: 100%; }
+    body { background: #f8fafc; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="container">
-      <div class="logo">L</div>
-      <div>
-        <h1>실험 데이터 수집 · 반별 시각화<small> (오프라인)</small></h1>
-        <small>학생 입력 → 표 누적 → 그래프 생성 (인터넷 없이 동작)</small>
-      </div>
-      <span class="right"></span>
-      <button id="helpBtn" class="btn">? 도움말</button>
-      <button id="fieldsBtn" class="btn">✚ 필드 설정</button>
-    </div>
-  </div>
+  <div id="root"></div>
 
-  <div class="container">
-    <div class="row">
-      <section class="card">
-        <div class="flex" style="justify-content:space-between">
-          <h2>데이터 입력</h2>
-          <div class="flex">
-            <select id="classSelect"></select>
-          </div>
-        </div>
-        <div class="space"></div>
-        <form id="inputForm">
-          <div class="flex" style="gap:12px">
-            <div style="flex:1">
-              <small>모둠</small>
-              <input id="groupInput" placeholder="예: 3" />
-            </div>
-            <div style="flex:1">
-              <small>이름</small>
-              <input id="studentInput" placeholder="예: 김학생" />
-            </div>
-          </div>
-          <div id="dynamicFields" class="flex" style="flex-wrap:wrap;gap:12px;margin-top:12px"></div>
-          <div class="space"></div>
-          <div class="flex">
-            <button class="btn primary" type="submit">제출</button>
-            <button class="btn" type="button" id="resetBtn">초기화</button>
-          </div>
-          <small id="storageMode" style="display:block;margin-top:8px;color:var(--muted)">현재 저장 방식: 브라우저 저장소</small>
-        </form>
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState } = React;
+    const {
+      ResponsiveContainer, BarChart, Bar, LineChart, Line,
+      ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+    } = Recharts;
 
-        <div class="space"></div><div class="space"></div>
-        <h3 style="margin:0 0 8px">반 관리</h3>
-        <div class="flex">
-          <input id="newClassInput" placeholder="새 반(예: 1-3, 2-1)" />
-          <button class="btn" id="addClassBtn">추가</button>
-        </div>
-        <div id="classChips" class="flex" style="flex-wrap:wrap;margin-top:8px"></div>
-      </section>
-
-      <section>
-        <div class="card">
-          <div class="flex" style="justify-content:space-between">
-            <h2>데이터 표 (<span id="currentClassLabel"></span>)</h2>
-            <div class="flex">
-              <button class="btn" id="exportBtn">CSV 내보내기</button>
-              <button class="btn" id="clearBtn">이 반 데이터 초기화</button>
-            </div>
-          </div>
-          <div class="space"></div>
-          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px">
-            <table id="dataTable"></table>
-          </div>
-        </div>
-
-        <div class="space"></div>
-
-        <div class="card">
-          <div class="flex" style="justify-content:space-between">
-            <h2>시각화</h2>
-            <small class="muted">그래프는 선택 반의 데이터만 사용합니다.</small>
-          </div>
-          <div class="space"></div>
-          <div class="row" style="grid-template-columns:260px 1fr">
-            <div class="card" style="padding:12px">
-              <div style="display:grid;gap:8px">
-                <label><small>차트 유형</small>
-                  <select id="chartType">
-                    <option value="bar">막대</option>
-                    <option value="line">꺾은선</option>
-                    <option value="scatter">산점도</option>
-                  </select>
-                </label>
-                <div id="groupOptions">
-                  <label><small>집계 기준</small>
-                    <select id="groupBy"></select>
-                  </label>
-                  <label><small>집계 값(Y)</small>
-                    <select id="yField"></select>
-                  </label>
-                  <label><small>집계 방식</small>
-                    <select id="agg">
-                      <option value="mean">평균</option>
-                      <option value="sum">합</option>
-                      <option value="min">최솟값</option>
-                      <option value="max">최댓값</option>
-                      <option value="count">개수</option>
-                    </select>
-                  </label>
-                </div>
-                <div id="scatterOptions" style="display:none">
-                  <label><small>X축(숫자)</small>
-                    <select id="xField"></select>
-                  </label>
-                  <label><small>Y축(숫자)</small>
-                    <select id="yFieldScatter"></select>
-                  </label>
-                </div>
-              </div>
-            </div>
-            <div>
-              <canvas id="chart"></canvas>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- 도움말 모달 -->
-  <div class="modal" id="helpModal">
-    <div class="card">
-      <h2>빠른 안내</h2>
-      <ol>
-        <li>상단 <b>✚ 필드 설정</b>에서 측정 항목(숫자/텍스트)을 추가합니다.</li>
-        <li>학생은 반/모둠/이름과 측정 값을 입력 후 <b>제출</b>합니다.</li>
-        <li>중앙 표에 누적되고, <b>시각화</b>에서 그래프 유형/축/집계를 선택합니다.</li>
-        <li>이 오프라인 버전은 인터넷 없이 동작하며, 데이터는 이 기기의 브라우저에 저장됩니다.</li>
-      </ol>
-      <div class="flex" style="justify-content:flex-end"><button class="btn" id="helpClose">닫기</button></div>
-    </div>
-  </div>
-
-  <!-- 필드 설정 모달 -->
-  <div class="modal" id="fieldsModal">
-    <div class="card">
-      <h2>필드 설정(교사용)</h2>
-      <div id="fieldsList" style="margin-top:8px;display:grid;gap:8px"></div>
-      <div class="flex" style="margin-top:8px">
-        <button class="btn" id="addNumberField">+ 숫자 필드</button>
-        <button class="btn" id="addTextField">+ 텍스트 필드</button>
-        <span class="right"></span>
-        <button class="btn" id="fieldsClose">완료</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
     const LS_KEYS = {
       records: "lab_records_v1",
       fields: "lab_fields_v1",
       classes: "lab_classes_v1",
+      firebase: "lab_firebase_config_v1",
     };
-    const DEFAULT_CLASSES = ["1-6","1-7","1-8","1-9","1-10"];
-    const $ = (sel)=>document.querySelector(sel);
-    const $$ = (sel)=>Array.from(document.querySelectorAll(sel));
-    const uid = ()=> Date.now() + "_" + Math.random().toString(36).slice(2,9);
-    const saveLS = (k,v)=> localStorage.setItem(k, JSON.stringify(v));
-    const loadLS = (k,fb)=>{ try{ const x=JSON.parse(localStorage.getItem(k)||"null"); return x??fb; }catch(e){ return fb; } };
 
-    let classes = loadLS(LS_KEYS.classes, DEFAULT_CLASSES);
-    let selectedClass = classes[0] || "1-1";
-    let fields = loadLS(LS_KEYS.fields, [{ id: uid(), name: "측정값", type: "number" }]);
-    let records = loadLS(LS_KEYS.records, []);
+    const DEFAULT_CLASSES = ["1-6", "1-7", "1-8", "1-9", "1-10"];
 
-    // --- UI refs
-    const classSelect = $("#classSelect");
-    const currentClassLabel = $("#currentClassLabel");
-    const groupInput = $("#groupInput");
-    const studentInput = $("#studentInput");
-    const dynamicFields = $("#dynamicFields");
-    const dataTable = $("#dataTable");
-    const chartCanvas = $("#chart");
-    const exportBtn = $("#exportBtn");
-    const clearBtn = $("#clearBtn");
-    const addClassBtn = $("#addClassBtn");
-    const newClassInput = $("#newClassInput");
-    const classChips = $("#classChips");
-    const chartTypeSel = $("#chartType");
-    const groupBySel = $("#groupBy");
-    const yFieldSel = $("#yField");
-    const aggSel = $("#agg");
-    const xFieldSel = $("#xField");
-    const yFieldScatterSel = $("#yFieldScatter");
-    const groupOptions = $("#groupOptions");
-    const scatterOptions = $("#scatterOptions");
-    const inputForm = $("#inputForm");
-    const resetBtn = $("#resetBtn");
-    const helpBtn = $("#helpBtn");
-    const helpModal = $("#helpModal");
-    const helpClose = $("#helpClose");
-    const fieldsBtn = $("#fieldsBtn");
-    const fieldsModal = $("#fieldsModal");
-    const fieldsList = $("#fieldsList");
-    const addNumberField = $("#addNumberField");
-    const addTextField = $("#addTextField");
-    const storageMode = $("#storageMode");
-
-    // --- State for chart controls
-    let chartType = "bar";
-    let groupBy = "groupId"; // groupId | student | classId | textFieldName
-    let yField = fields.find(f=>f.type==="number")?.name || "측정값";
-    let xField = yField;
-    let agg = "mean";
-
-    // --- Render helpers
-    function renderClassSelect(){
-      classSelect.innerHTML = classes.map(c=>`<option value="${c}">${c}</option>`).join("");
-      classSelect.value = selectedClass;
-      currentClassLabel.textContent = "선택 반: " + selectedClass;
-      classChips.innerHTML = classes.map(c=>`<span class="pill">${c}<button class="btn" style="padding:2px 6px" data-remove-class="${c}">×</button></span>`).join(" ");
-      classChips.querySelectorAll("[data-remove-class]").forEach(btn=>{
-        btn.onclick = ()=>{
-          const c = btn.getAttribute("data-remove-class");
-          if(!confirm(c+" 반을 목록에서 제거할까요? (데이터는 삭제되지 않습니다)")) return;
-          classes = classes.filter(x=>x!==c);
-          saveLS(LS_KEYS.classes, classes);
-          if(selectedClass===c) selectedClass = classes[0]||"";
-          renderAll();
-        };
-      });
+    function uid() { return `${Date.now()}_${Math.random().toString(36).slice(2,9)}`; }
+    function saveLS(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+    function loadLS(key, fallback) {
+      try { const v = JSON.parse(localStorage.getItem(key) || "null"); return (v ?? fallback); }
+      catch { return fallback; }
     }
 
-    function renderDynamicFields(){
-      dynamicFields.innerHTML = fields.map(f=>{
-        const type = f.type==="number" ? "number" : "text";
-        const suffix = f.type==="number" ? " (숫자)" : "";
-        return `<div style="flex:1 1 220px">
-          <small>${escapeHtml(f.name)}${suffix}</small>
-          <input data-field="${f.id}" type="${type}" step="any" />
-        </div>`;
-      }).join("");
-    }
-
-    function renderTable(){
-      const visible = records.filter(r=>r.classId===selectedClass);
-      const header = ["시간","반","모둠","이름", ...fields.map(f=>f.name) ];
-      let html = "<thead><tr>"+ header.map(h=>`<th>${escapeHtml(h)}</th>`).join("") + "</tr></thead>";
-      html += "<tbody>";
-      if(visible.length===0){
-        html += `<tr><td colspan="${header.length}" style="color:var(--muted)">아직 데이터가 없습니다. 좌측 폼에서 제출해 보세요.</td></tr>`;
-      } else {
-        for(const r of visible){
-          html += "<tr>";
-          html += `<td>${new Date(r.timestamp).toLocaleString()}</td>`;
-          html += `<td>${escapeHtml(r.classId||"")}</td>`;
-          html += `<td>${escapeHtml(r.groupId||"")}</td>`;
-          html += `<td>${escapeHtml(r.student||"")}</td>`;
-          for(const f of fields){
-            const v = r.values?.[f.name];
-            html += `<td>${v==null?"":escapeHtml(String(v))}</td>`;
-          }
-          html += "</tr>";
-        }
-      }
-      html += "</tbody>";
-      dataTable.innerHTML = html;
-    }
-
-    function renderChartControls(){
-      // groupBy options
-      const textFields = fields.filter(f=>f.type==="text").map(f=>f.name);
-      groupBySel.innerHTML = ["groupId","student","classId", ...textFields].map(k=>{
-        const label = k==="groupId"?"모둠": k==="student"?"이름": k==="classId"?"반": k;
-        return `<option value="${k}">${escapeHtml(label)}</option>`;
-      }).join("");
-      groupBySel.value = groupBy;
-      // yField numeric
-      const numeric = fields.filter(f=>f.type==="number").map(f=>f.name);
-      yFieldSel.innerHTML = numeric.map(n=>`<option value="${n}">${escapeHtml(n)}</option>`).join("");
-      if(!numeric.includes(yField)) yField = numeric[0] || "측정값";
-      yFieldSel.value = yField;
-      // scatter numeric x/y
-      xFieldSel.innerHTML = numeric.map(n=>`<option value="${n}">${escapeHtml(n)}</option>`).join("");
-      yFieldScatterSel.innerHTML = xFieldSel.innerHTML;
-      if(!numeric.includes(xField)) xField = numeric[0] || "측정값";
-      xFieldSel.value = xField;
-      if(!numeric.includes(yField)) yField = numeric[0] || "측정값";
-      yFieldScatterSel.value = yField;
-      // toggle groups
-      groupOptions.style.display = chartType==="scatter" ? "none" : "block";
-      scatterOptions.style.display = chartType==="scatter" ? "block" : "none";
-    }
-
-    function aggregate(data, byKey, valueKey, agg){
-      if(!byKey) return [];
-      const groups = new Map();
-      for(const r of data){
-        const key = (byKey==="classId"||byKey==="groupId"||byKey==="student") ? r[byKey] : (r.values?.[byKey]);
-        const v = valueKey==="count" ? 1 : r.values?.[valueKey];
-        if(!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(v);
-      }
-      const out = [];
-      for(const [k,arr] of groups){
-        if(!arr || arr.length===0) continue;
-        let val=null;
-        const nums = arr.map(x=> x==null ? NaN : Number(x)).filter(x=>!Number.isNaN(x));
-        switch(agg){
-          case "count": val = arr.length; break;
-          case "sum": val = nums.reduce((a,b)=>a+b,0); break;
-          case "min": val = Math.min(...nums); break;
-          case "max": val = Math.max(...nums); break;
-          case "mean":
-          default: val = nums.reduce((a,b)=>a+b,0) / (nums.length||1);
-        }
-        out.push({label: String(k), value: val});
-      }
-      return out;
-    }
-
-    function drawChart(){
-      const ctx = chartCanvas.getContext("2d");
-      const W = chartCanvas.width = chartCanvas.clientWidth * window.devicePixelRatio;
-      const H = chartCanvas.height = chartCanvas.clientHeight * window.devicePixelRatio;
-      ctx.clearRect(0,0,W,H);
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-      // padding
-      const pad = {l:40, r:20, t:20, b:36};
-      const plotW = chartCanvas.clientWidth - pad.l - pad.r;
-      const plotH = chartCanvas.clientHeight - pad.t - pad.b;
-
-      // data
-      const visible = records.filter(r=>r.classId===selectedClass);
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "12px system-ui";
-
-      if(chartType==="scatter"){
-        const points = visible.map(r=> ({
-          x: r.values?.[xField],
-          y: r.values?.[yField],
-          name: r.groupId || r.student || r.classId
-        })).filter(p=> typeof p.x==="number" && typeof p.y==="number");
-        if(points.length===0){ drawNoData(ctx); return; }
-        const xMin = Math.min(...points.map(p=>p.x)), xMax = Math.max(...points.map(p=>p.x));
-        const yMin = Math.min(...points.map(p=>p.y)), yMax = Math.max(...points.map(p=>p.y));
-        // axes
-        axes(ctx, pad, plotW, plotH, xMin, xMax, yMin, yMax, xField, yField);
-        ctx.fillStyle = "#0ea5e9";
-        for(const p of points){
-          const x = pad.l + (p.x - xMin) / (xMax - xMin || 1) * plotW;
-          const y = pad.t + (1 - (p.y - yMin) / (yMax - yMin || 1)) * plotH;
-          ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
-        }
-        return;
-      }
-
-      // bar/line
-      const data = aggregate(visible, groupBy, yField, agg);
-      if(data.length===0){ drawNoData(ctx); return; }
-      const vMax = Math.max(...data.map(d=>d.value), 0);
-      const vMin = Math.min(0, Math.min(...data.map(d=>d.value)));
-      axes(ctx, pad, plotW, plotH, 0, data.length-1, vMin, vMax, "", yField);
-
-      if(chartType==="bar"){
-        const bw = plotW / Math.max(1, data.length);
-        ctx.fillStyle = "#0ea5e9";
-        data.forEach((d,i)=>{
-          const x = pad.l + i * bw + bw*0.15;
-          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
-          const h = pad.t + plotH - y;
-          ctx.fillRect(x, y, bw*0.7, h);
-          // labels
-          ctx.save();
-          ctx.translate(x + bw*0.35, pad.t + plotH + 14);
-          ctx.rotate(-Math.PI/8);
-          ctx.fillStyle = "#334155";
-          ctx.textAlign = "center";
-          ctx.fillText(truncate(d.label, 12), 0, 0);
-          ctx.restore();
-        });
-      } else if(chartType==="line"){
-        ctx.strokeStyle = "#0ea5e9"; ctx.lineWidth = 2;
-        ctx.beginPath();
-        data.forEach((d,i)=>{
-          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
-          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
-          if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        });
-        ctx.stroke();
-        ctx.fillStyle = "#0ea5e9";
-        data.forEach((d,i)=>{
-          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
-          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
-          ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
-        });
-        // x labels
-        ctx.fillStyle = "#334155";
-        data.forEach((d,i)=>{
-          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
-          ctx.save();
-          ctx.translate(x, pad.t + plotH + 14);
-          ctx.rotate(-Math.PI/8);
-          ctx.textAlign="center";
-          ctx.fillText(truncate(d.label, 12), 0, 0);
-          ctx.restore();
-        });
-      }
-    }
-
-    function axes(ctx, pad, plotW, plotH, xMin, xMax, yMin, yMax, xLabel, yLabel){
-      // frame
-      ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;
-      ctx.strokeRect(pad.l, pad.t, plotW, plotH);
-      // ticks Y
-      ctx.fillStyle = "#64748b"; ctx.strokeStyle="#e2e8f0";
-      const ticks = 5;
-      for(let i=0;i<=ticks;i++){
-        const y = pad.t + (i/ticks) * plotH;
-        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + plotW, y); ctx.stroke();
-        const v = yMax - (i/ticks)*(yMax - yMin);
-        ctx.fillText(formatNumber(v), 6, y+4);
-      }
-      // labels
-      if(yLabel){ ctx.fillText(yLabel, 6, pad.t-6); }
-      if(xLabel){ ctx.fillText(xLabel, pad.l + plotW - 50, pad.t + plotH + 28); }
-    }
-
-    function drawNoData(ctx){
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "14px system-ui";
-      ctx.fillText("표시할 데이터가 없습니다.", 16, 28);
-    }
-
-    function formatNumber(n){
-      if(!isFinite(n)) return "0";
-      const abs = Math.abs(n);
-      if(abs>=1e6) return (n/1e6).toFixed(1)+"M";
-      if(abs>=1e3) return (n/1e3).toFixed(1)+"k";
-      return String(Math.round(n*100)/100);
-    }
-    function truncate(s, n){ return (s.length>n)? s.slice(0,n-1)+"…" : s; }
-    function escapeHtml(s){ return s.replace(/[&<>\"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
-
-    // --- Event wiring
-    classSelect.onchange = ()=>{ selectedClass = classSelect.value; renderAll(); };
-    $("#exportBtn").onclick = ()=>{
-      const visible = records.filter(r=>r.classId===selectedClass);
-      if(!visible.length){ alert("내보낼 데이터가 없습니다."); return; }
-      const headers = ["시간","반","모둠","이름", ...fields.map(f=>f.name)];
-      const rows = [headers.join(",")];
-      for(const r of visible){
-        const row = [
-          JSON.stringify(new Date(r.timestamp).toLocaleString()),
-          JSON.stringify(r.classId||""),
-          JSON.stringify(r.groupId||""),
-          JSON.stringify(r.student||"")
-        ];
-        for(const f of fields) row.push(JSON.stringify(r.values?.[f.name] ?? ""));
-        rows.push(row.join(","));
-      }
-      const blob = new Blob([rows.join("\\n")], {type:"text/csv;charset=utf-8;"});
+    function downloadCSV(filename, rows) {
+      const replacer = (key, value) => (value === null || value === undefined ? "" : value);
+      const header = Object.keys(rows[0] || {});
+      const csv = [
+        header.join(","),
+        ...rows.map((row) => header.map((field) => JSON.stringify(replacer(field, row[field]))).join(",")),
+      ].join("\\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `records_${selectedClass}.csv`; a.click();
-      setTimeout(()=>URL.revokeObjectURL(url), 2000);
-    };
-    $("#clearBtn").onclick = ()=>{
-      if(!confirm("이 반의 로컬 데이터를 모두 삭제할까요?")) return;
-      records = records.filter(r=>r.classId!==selectedClass);
-      saveLS(LS_KEYS.records, records);
-      renderAll();
-    };
-    $("#addClassBtn").onclick = ()=>{
-      const c = (newClassInput.value||"").trim();
-      if(!c) return;
-      if(classes.includes(c)) return alert("이미 있는 반입니다.");
-      classes.push(c);
-      saveLS(LS_KEYS.classes, classes);
-      selectedClass = c;
-      newClassInput.value = "";
-      renderAll();
-    };
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
 
-    inputForm.onsubmit = (e)=>{
-      e.preventDefault();
-      // Validate numeric fields
-      for(const f of fields){
-        if(f.type==="number"){
-          const el = dynamicFields.querySelector(`[data-field="${f.id}"]`);
-          const raw = el.value;
-          if(raw!=="" && isNaN(Number(raw))){ alert("'" + f.name + "'에는 숫자를 입력하세요."); return; }
+    function isNumericField(field) { return field?.type === "number"; }
+
+    // ---------------- Firebase (compat) ----------------
+    const fb = { enabled: false, app: null, db: null };
+    async function initFirebaseIfNeeded(config) {
+      try {
+        if (!config || !config.apiKey) return false;
+        if (fb.enabled && fb.app) return true;
+        if (!window.firebase) return false;
+        // Avoid double init
+        if (firebase.apps && firebase.apps.length) {
+          fb.app = firebase.apps[0];
+        } else {
+          fb.app = firebase.initializeApp(config);
         }
+        fb.db = firebase.firestore();
+        fb.enabled = true;
+        return true;
+      } catch (e) {
+        console.error("Firebase init failed:", e);
+        return false;
       }
-      const rec = {
-        id: uid(),
-        timestamp: Date.now(),
-        classId: selectedClass,
-        groupId: groupInput.value || "",
-        student: studentInput.value || "",
-        values: fields.reduce((acc,f)=>{
-          const el = dynamicFields.querySelector(`[data-field="${f.id}"]`);
-          const raw = el.value;
-          acc[f.name] = f.type==="number" ? (raw===""? null : Number(raw)) : (raw || "");
-          return acc;
-        }, {}),
-      };
-      records.push(rec);
-      saveLS(LS_KEYS.records, records);
-      // reset
-      inputForm.reset();
-      renderAll();
-    };
-    resetBtn.onclick = ()=> inputForm.reset();
-
-    helpBtn.onclick = ()=> helpModal.classList.add("open");
-    helpClose.onclick = ()=> helpModal.classList.remove("open");
-    fieldsBtn.onclick = ()=> { renderFieldsModal(); fieldsModal.classList.add("open"); };
-    $("#fieldsClose").onclick = ()=> fieldsModal.classList.remove("open");
-    addNumberField.onclick = ()=> addField("number");
-    addTextField.onclick = ()=> addField("text");
-
-    function addField(type){
-      const name = prompt("필드 이름을 입력하세요 (예: 온도, 질량, 조건)");
-      if(!name) return;
-      fields.push({ id: uid(), name, type });
-      saveLS(LS_KEYS.fields, fields);
-      renderAll();
     }
-    function renderFieldsModal(){
-      fieldsList.innerHTML = fields.map(f=>`
-        <div class="flex" style="justify-content:space-between;border:1px solid var(--border);padding:8px;border-radius:12px">
-          <div><b>${escapeHtml(f.name)}</b> <small style="color:var(--muted)">(${f.type})</small></div>
-          <div class="flex">
-            <button class="btn" data-rename="${f.id}">이름변경</button>
-            <button class="btn" data-remove="${f.id}">삭제</button>
+    async function fbAddRecord(record) {
+      return fb.db.collection("lab_records").add(record);
+    }
+    function fbSubscribeAllRecords(onData) {
+      return fb.db.collection("lab_records").orderBy("timestamp", "asc").onSnapshot((snap) => {
+        const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        onData(arr);
+      });
+    }
+
+    // ---------------- Main ----------------
+    function LabCollector() {
+      const [classes, setClasses] = useState(() => loadLS(LS_KEYS.classes, DEFAULT_CLASSES));
+      const [selectedClass, setSelectedClass] = useState(classes[0] || "1-1");
+      const [fields, setFields] = useState(() =>
+        loadLS(LS_KEYS.fields, [
+          { id: uid(), name: "측정값", type: "number" },
+        ])
+      );
+      const [records, setRecords] = useState(() => loadLS(LS_KEYS.records, []));
+      const [firebaseConfig, setFirebaseConfig] = useState(() => loadLS(LS_KEYS.firebase, {}));
+      const [firebaseReady, setFirebaseReady] = useState(false);
+      const [helpOpen, setHelpOpen] = useState(false);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+      const [fieldPanelOpen, setFieldPanelOpen] = useState(false);
+
+      useEffect(() => {
+        let unsub = null;
+        (async () => {
+          const ok = await initFirebaseIfNeeded(firebaseConfig);
+          setFirebaseReady(ok);
+          if (ok) {
+            unsub = fbSubscribeAllRecords((arr) => setRecords(arr));
+          } else {
+            const sync = () => setRecords(loadLS(LS_KEYS.records, []));
+            window.addEventListener("storage", sync);
+            return () => window.removeEventListener("storage", sync);
+          }
+        })();
+        return () => { if (unsub) unsub(); };
+      }, [firebaseConfig]);
+
+      useEffect(() => saveLS(LS_KEYS.fields, fields), [fields]);
+      useEffect(() => saveLS(LS_KEYS.classes, classes), [classes]);
+      useEffect(() => saveLS(LS_KEYS.firebase, firebaseConfig), [firebaseConfig]);
+
+      const [form, setForm] = useState({ groupId: "", student: "" });
+      const [formValues, setFormValues] = useState({});
+
+      function resetForm() {
+        setForm({ groupId: "", student: "" });
+        setFormValues({});
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        for (const f of fields) {
+          if (f.type === "number" && formValues[f.id] !== undefined && formValues[f.id] !== "") {
+            const num = Number(formValues[f.id]);
+            if (Number.isNaN(num)) {
+              alert("'" + f.name + "'에는 숫자를 입력하세요.");
+              return;
+            }
+          }
+        }
+        const rec = {
+          id: uid(),
+          timestamp: Date.now(),
+          classId: selectedClass,
+          groupId: form.groupId || "",
+          student: form.student || "",
+          values: fields.reduce((acc, f) => {
+            const raw = formValues[f.id];
+            acc[f.name] = f.type === "number" ? (raw === "" || raw === undefined ? null : Number(raw)) : (raw ?? "");
+            return acc;
+          }, {}),
+        };
+        if (firebaseReady) {
+          fbAddRecord(rec).catch((e) => alert("Firebase 저장 오류: " + (e?.message || e)));
+        } else {
+          const next = [...records, rec];
+          setRecords(next);
+          saveLS(LS_KEYS.records, next);
+        }
+        resetForm();
+      }
+
+      function addField(type = "number") {
+        const name = prompt("필드 이름을 입력하세요 (예: 온도, 질량, 조건)");
+        if (!name) return;
+        setFields((prev) => [...prev, { id: uid(), name, type }]);
+      }
+      function removeField(id) {
+        if (!confirm("이 필드를 삭제할까요? 기존 데이터의 컬럼만 비어집니다.")) return;
+        setFields((prev) => prev.filter((f) => f.id !== id));
+      }
+      function renameField(id) {
+        const f = fields.find((x) => x.id === id);
+        if (!f) return;
+        const name = prompt("새 필드 이름", f.name);
+        if (!name) return;
+        setFields((prev) => prev.map((x) => (x.id === id ? { ...x, name } : x)));
+      }
+
+      const [newClass, setNewClass] = useState("");
+      function addClass() {
+        const c = (newClass || "").trim();
+        if (!c) return;
+        if (classes.includes(c)) return alert("이미 있는 반입니다.");
+        const next = [...classes, c];
+        setClasses(next); setNewClass(""); setSelectedClass(c);
+      }
+      function removeClass(c) {
+        if (!confirm(c + " 반을 목록에서 제거할까요? (데이터는 삭제되지 않습니다)")) return;
+        const next = classes.filter((x) => x !== c);
+        setClasses(next);
+        if (selectedClass === c) setSelectedClass(next[0] || "");
+      }
+
+      const visibleRecords = React.useMemo(
+        () => records.filter((r) => r.classId === selectedClass),
+        [records, selectedClass]
+      );
+
+      const numericFieldNames = fields.filter(isNumericField).map((f) => f.name);
+      const [chartType, setChartType] = useState("bar"); // bar | line | scatter
+      const [xField, setXField] = useState("groupId");
+      const [yField, setYField] = useState(numericFieldNames[0] || "측정값");
+      const [groupBy, setGroupBy] = useState("groupId");
+      const [agg, setAgg] = useState("mean"); // mean | sum | count | min | max
+
+      const tableColumns = useMemo(() => [
+        { key: "timestamp", label: "시간" },
+        { key: "classId", label: "반" },
+        { key: "groupId", label: "모둠" },
+        { key: "student", label: "이름" },
+        ...fields.map((f) => ({ key: "values." + f.name, label: f.name })),
+      ], [fields]);
+
+      function aggregate(data, byKey, valueKey, agg) {
+        if (!byKey) return [];
+        const groups = new Map();
+        for (const r of data) {
+          const key = byKey === "classId" || byKey === "groupId" || byKey === "student"
+            ? r[byKey] : r.values?.[byKey];
+          const v = valueKey === "count" ? 1 : r.values?.[valueKey];
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(v);
+        }
+        const out = [];
+        for (const [k, arr] of groups) {
+          if (!arr || arr.length === 0) continue;
+          let val = null;
+          const nums = arr.map((x) => (x == null ? NaN : Number(x))).filter((x) => !Number.isNaN(x));
+          switch (agg) {
+            case "count": val = arr.length; break;
+            case "sum":   val = nums.reduce((a,b)=>a+b,0); break;
+            case "min":   val = Math.min(...nums); break;
+            case "max":   val = Math.max(...nums); break;
+            case "mean":
+            default:      val = nums.reduce((a,b)=>a+b,0) / (nums.length || 1);
+          }
+          out.push({ [xField]: k, [yField]: val });
+        }
+        return out;
+      }
+
+      const chartData = useMemo(() => {
+        if (chartType === "scatter") {
+          const data = visibleRecords.map((r) => ({
+            x: r.values?.[xField] ?? (xField === "groupId" ? r.groupId : xField === "student" ? r.student : r[xField]),
+            y: r.values?.[yField],
+            name: r.groupId || r.student || r.classId,
+          })).filter((d) => typeof d.x === "number" && typeof d.y === "number");
+          return data;
+        }
+        const byKey = groupBy && groupBy !== "none" ? groupBy : null;
+        if (!byKey) return [];
+        return aggregate(visibleRecords, byKey, yField, agg);
+      }, [visibleRecords, chartType, xField, yField, groupBy, agg]);
+
+      return (
+        <div className="min-h-screen bg-slate-50 text-slate-900">
+          <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3 justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-slate-900 text-white grid place-items-center font-bold">L</div>
+                <div>
+                  <h1 className="text-lg font-bold leading-tight">실험 데이터 수집 · 반별 실시간 시각화</h1>
+                  <p className="text-xs text-slate-500">학생 입력 → 표 누적 → 그래프 자동 생성</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm hover:opacity-90"
+                        onClick={() => setHelpOpen((v) => !v)}
+                        aria-label="도움말">? 도움말</button>
+                <button className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-sm hover:bg-slate-100"
+                        onClick={() => setFieldPanelOpen((v) => !v)}>✚ 필드 설정</button>
+                <button className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-sm hover:bg-slate-100"
+                        onClick={() => setSettingsOpen((v) => !v)} aria-label="설정">⚙ Firebase</button>
+              </div>
+            </div>
+          </header>
+
+          <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <section className="lg:col-span-1">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">데이터 입력</h2>
+                  <div className="flex items-center gap-2 text-sm">
+                    <select className="border rounded-xl px-2 py-1"
+                            value={selectedClass}
+                            onChange={(e) => setSelectedClass(e.target.value)}>
+                      {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="mt-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-600">모둠</label>
+                      <input className="w-full mt-1 px-3 py-2 border rounded-xl"
+                             placeholder="예: 3"
+                             value={form.groupId}
+                             onChange={(e) => setForm((p) => ({ ...p, groupId: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-600">이름</label>
+                      <input className="w-full mt-1 px-3 py-2 border rounded-xl"
+                             placeholder="예: 김학생"
+                             value={form.student}
+                             onChange={(e) => setForm((p) => ({ ...p, student: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {fields.map((f) => (
+                      <div key={f.id}>
+                        <label className="text-xs text-slate-600">{f.name}{f.type === "number" ? " (숫자)" : ""}</label>
+                        <input className="w-full mt-1 px-3 py-2 border rounded-xl"
+                               type={f.type === "number" ? "number" : "text"}
+                               step="any"
+                               value={ (formValues[f.id] ?? "") }
+                               onChange={(e) => setFormValues((p) => ({ ...p, [f.id]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90" type="submit">제출</button>
+                    <button className="px-4 py-2 rounded-xl border" type="button" onClick={resetForm}>초기화</button>
+                  </div>
+
+                  <p className="text-xs text-slate-500">현재 저장 방식: {firebaseReady ? "Firebase(실시간)" : "브라우저 저장소(동일 브라우저 탭 실시간)"}</p>
+                </form>
+
+                <div className="mt-5 border-t pt-4">
+                  <h3 className="text-sm font-semibold mb-2">반 관리</h3>
+                  <div className="flex gap-2">
+                    <input className="flex-1 px-3 py-2 border rounded-xl"
+                           placeholder="새 반(예: 1-3, 2-1)"
+                           value={newClass}
+                           onChange={(e) => setNewClass(e.target.value)} />
+                    <button className="px-3 py-2 rounded-xl border" onClick={addClass}>추가</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                    {classes.map((c) => (
+                      <span key={c} className="inline-flex items-center gap-1 px-2 py-1 rounded-full border">
+                        {c}
+                        <button className="text-slate-500 hover:text-red-600" onClick={() => removeClass(c)}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="lg:col-span-2">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">데이터 표 (선택 반: {selectedClass})</h2>
+                  <div className="flex items-center gap-2">
+                    <button className="px-3 py-1.5 rounded-xl border text-sm"
+                            onClick={() => {
+                              if (!visibleRecords.length) return alert("내보낼 데이터가 없습니다.");
+                              const rows = visibleRecords.map((r) => ({
+                                "시간": new Date(r.timestamp).toLocaleString(),
+                                "반": r.classId,
+                                "모둠": r.groupId,
+                                "이름": r.student,
+                                ...(r.values || {}),
+                              }));
+                              downloadCSV(`records_${selectedClass}.csv`, rows);
+                            }}>CSV 내보내기</button>
+                    <button className="px-3 py-1.5 rounded-xl border text-sm"
+                            onClick={() => {
+                              if (!confirm("이 반의 로컬 데이터(브라우저 저장)를 모두 삭제할까요? Firebase에 저장된 데이터는 삭제되지 않습니다.")) return;
+                              const rest = records.filter((r) => r.classId !== selectedClass);
+                              setRecords(rest);
+                              saveLS(LS_KEYS.records, rest);
+                            }}>이 반 데이터 초기화</button>
+                  </div>
+                </div>
+
+                <div className="mt-3 overflow-auto border rounded-xl">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 border-b">
+                      <tr>
+                        {tableColumns.map((col) => (
+                          <th key={col.key} className="text-left px-3 py-2 whitespace-nowrap font-semibold">{col.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRecords.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-4 text-slate-500" colSpan={tableColumns.length}>아직 데이터가 없습니다. 좌측 폼에서 제출해 보세요.</td>
+                        </tr>
+                      ) : (
+                        visibleRecords.map((r) => (
+                          <tr key={r.id} className="border-b hover:bg-slate-50/50">
+                            <td className="px-3 py-2 whitespace-nowrap">{new Date(r.timestamp).toLocaleString()}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{r.classId}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{r.groupId}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{r.student}</td>
+                            {fields.map((f) => (
+                              <td className="px-3 py-2" key={r.id + "-" + f.id}>
+                                {r.values?.[f.name] === null || r.values?.[f.name] === undefined ? "" : String(r.values?.[f.name])}
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="mt-6 bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">시각화</h2>
+                  <div className="text-xs text-slate-500">그래프는 선택 반의 데이터만 사용합니다.</div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-600">차트 유형</label>
+                      <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+                        <option value="bar">막대</option>
+                        <option value="line">꺾은선</option>
+                        <option value="scatter">산점도</option>
+                      </select>
+                    </div>
+                    {chartType !== "scatter" ? (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-600">집계 기준</label>
+                          <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+                            <option value="groupId">모둠</option>
+                            <option value="student">이름</option>
+                            <option value="classId">반</option>
+                            {fields.filter((f) => f.type === "text").map((f) => (
+                              <option key={f.id} value={f.name}>{f.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-600">집계 값(Y)</label>
+                          <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={yField} onChange={(e) => setYField(e.target.value)}>
+                            {numericFieldNames.length === 0 ? <option>숫자 필드를 추가하세요</option> : null}
+                            {numericFieldNames.map((n) => (<option key={n} value={n}>{n}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-600">집계 방식</label>
+                          <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={agg} onChange={(e) => setAgg(e.target.value)}>
+                            <option value="mean">평균</option>
+                            <option value="sum">합</option>
+                            <option value="min">최솟값</option>
+                            <option value="max">최댓값</option>
+                            <option value="count">개수</option>
+                          </select>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-600">X축(숫자)</label>
+                          <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={xField} onChange={(e) => setXField(e.target.value)}>
+                            {numericFieldNames.map((n) => (<option key={n} value={n}>{n}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-600">Y축(숫자)</label>
+                          <select className="w-full mt-1 px-2 py-2 border rounded-xl" value={yField} onChange={(e) => setYField(e.target.value)}>
+                            {numericFieldNames.map((n) => (<option key={n} value={n}>{n}</option>))}
+                          </select>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="lg:col-span-3 h-[360px] w-full border rounded-xl p-2">
+                    {chartType === "bar" && (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey={xField} />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey={yField} name={yField} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                    {chartType === "line" && (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey={xField} />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey={yField} dot={true} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                    {chartType === "scatter" && (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" dataKey="x" name={xField} />
+                          <YAxis type="number" dataKey="y" name={yField} />
+                          <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+                          <Legend />
+                          <Scatter data={chartData} name={xField + " vs " + yField} />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
+
+          {helpOpen && (
+            <div className="fixed inset-0 bg-black/30 grid place-items-center z-40" onClick={() => setHelpOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-5" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">빠른 안내</h3>
+                <ol className="list-decimal pl-5 mt-2 space-y-1 text-sm text-slate-700">
+                  <li>좌측 상단에서 <b>반</b>을 선택하세요. 필요하면 반을 추가할 수 있습니다.</li>
+                  <li>상단의 <b>필드 설정</b>에서 측정 항목(숫자/텍스트)을 추가하세요.</li>
+                  <li>학생은 반/모둠/이름과 측정 값을 입력 후 <b>제출</b>하세요.</li>
+                  <li>중앙 표에 누적되고, <b>시각화</b> 패널에서 그래프 유형과 축을 선택하세요.</li>
+                  <li>실시간 공동 입력이 필요하면 상단의 <b>⚙ Firebase</b>를 열어 프로젝트 설정(JSON)을 붙여넣으세요.</li>
+                </ol>
+                <p className="mt-3 text-xs text-slate-500">* Firebase를 사용할 경우, Firestore Database 활성화 및 보안 규칙을 프로젝트 상황에 맞게 설정하세요.</p>
+                <div className="mt-4 text-right">
+                  <button className="px-4 py-2 rounded-xl border" onClick={() => setHelpOpen(false)}>닫기</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {fieldPanelOpen && (
+            <div className="fixed inset-0 bg-black/30 grid place-items-center z-40" onClick={() => setFieldPanelOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-5" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">필드 설정(교사용)</h3>
+                <div className="mt-3 space-y-2">
+                  {fields.map((f) => (
+                    <div key={f.id} className="flex items-center gap-2 p-2 border rounded-xl">
+                      <span className="text-sm font-medium flex-1">{f.name} <span className="text-xs text-slate-500">({f.type})</span></span>
+                      <button className="px-2 py-1 border rounded-lg text-xs" onClick={() => renameField(f.id)}>이름변경</button>
+                      <button className="px-2 py-1 border rounded-lg text-xs" onClick={() => removeField(f.id)}>삭제</button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2 pt-2">
+                    <button className="px-3 py-2 rounded-xl border" onClick={() => addField("number")}>+ 숫자 필드</button>
+                    <button className="px-3 py-2 rounded-xl border" onClick={() => addField("text")}>+ 텍스트 필드</button>
+                  </div>
+                </div>
+                <div className="mt-4 text-right">
+                  <button className="px-4 py-2 rounded-xl border" onClick={() => setFieldPanelOpen(false)}>완료</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {settingsOpen && (
+            <div className="fixed inset-0 bg-black/30 grid place-items-center z-40" onClick={() => setSettingsOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-5" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold">실시간 사용을 위한 Firebase 설정</h3>
+                <p className="text-sm text-slate-600 mt-1">Firebase 콘솔 → 프로젝트 설정 → SDK 설정 및 구성에서 나온 <b>구성 객체(JSON)</b>를 붙여넣으세요.</p>
+                <textarea className="mt-3 w-full h-40 border rounded-xl p-3 font-mono text-xs"
+                          placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'
+                          defaultValue={JSON.stringify(loadLS(LS_KEYS.firebase, {}) || {}, null, 2)}
+                          onBlur={async (e) => {
+                            try {
+                              const obj = JSON.parse(e.target.value || "{}");
+                              saveLS(LS_KEYS.firebase, obj);
+                              const ok = await initFirebaseIfNeeded(obj);
+                              alert(ok ? "Firebase 연결 완료. 이제 여러 기기에서 실시간 동기화됩니다." : "Firebase 초기화 실패 또는 설정 불완전.");
+                              window.location.reload();
+                            } catch (err) {
+                              alert("올바른 JSON이 아닙니다.");
+                            }
+                          }}></textarea>
+                <div className="mt-3 flex items-center justify-between text-xs text-slate-600">
+                  <div>상태: {firebase.apps && firebase.apps.length ? <b className="text-emerald-600">연결됨</b> : <b className="text-rose-600">미연결</b>}</div>
+                  <div className="flex items-center gap-2">
+                    <button className="px-3 py-2 rounded-xl border"
+                            onClick={() => {
+                              localStorage.removeItem(LS_KEYS.firebase);
+                              alert("Firebase 설정을 초기화했습니다. 로컬 저장 방식으로 전환됩니다.");
+                              window.location.reload();
+                            }}>초기화</button>
+                    <button className="px-4 py-2 rounded-xl border" onClick={() => setSettingsOpen(false)}>닫기</button>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">* Firestore Database를 활성화하고, 수업 후에는 보안 규칙을 강화하세요.</p>
+              </div>
+            </div>
+          )}
         </div>
-      `).join("");
-      fieldsList.querySelectorAll("[data-rename]").forEach(b=>{
-        b.onclick = ()=>{
-          const id = b.getAttribute("data-rename");
-          const f = fields.find(x=>x.id===id);
-          const name = prompt("새 필드 이름", f.name);
-          if(!name) return;
-          f.name = name;
-          saveLS(LS_KEYS.fields, fields);
-          renderAll();
-          renderFieldsModal();
-        };
-      });
-      fieldsList.querySelectorAll("[data-remove]").forEach(b=>{
-        b.onclick = ()=>{
-          const id = b.getAttribute("data-remove");
-          if(!confirm("이 필드를 삭제할까요? 기존 데이터의 해당 컬럼은 비게 됩니다.")) return;
-          fields = fields.filter(x=>x.id!==id);
-          saveLS(LS_KEYS.fields, fields);
-          renderAll();
-          renderFieldsModal();
-        };
-      });
+      );
     }
 
-    // Chart control events
-    chartTypeSel.onchange = ()=>{ chartType = chartTypeSel.value; renderChartControls(); drawChart(); };
-    groupBySel.onchange = ()=>{ groupBy = groupBySel.value; drawChart(); };
-    yFieldSel.onchange = ()=>{ yField = yFieldSel.value; drawChart(); };
-    aggSel.onchange = ()=>{ agg = aggSel.value; drawChart(); };
-    xFieldSel.onchange = ()=>{ xField = xFieldSel.value; drawChart(); };
-    yFieldScatterSel.onchange = ()=>{ yField = yFieldScatterSel.value; drawChart(); };
-    window.addEventListener("resize", drawChart);
-
-    function renderAll(){
-      renderClassSelect();
-      renderDynamicFields();
-      renderTable();
-      renderChartControls();
-      drawChart();
-      storageMode.textContent = "현재 저장 방식: 브라우저 저장소(오프라인)";
-    }
-
-    renderAll();
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<LabCollector />);
   </script>
 </body>
 </html>
