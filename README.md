@@ -1,2 +1,0 @@
-# SciC
-Science Class
