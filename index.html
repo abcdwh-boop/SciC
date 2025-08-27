@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>실험 데이터 수집 · 반별 시각화(오프라인)</title>
+  <style>
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --card:#ffffff; --border:#e2e8f0; --accent:#0ea5e9; }
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+    .container{max-width:1100px;margin:0 auto;padding:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,.04);padding:16px}
+    .row{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:1024px){.row{grid-template-columns:1fr 2fr}}
+    h1{font-size:18px;margin:0} h2{font-size:16px;margin:0 0 6px} small{color:var(--muted)}
+    .btn{padding:8px 12px;border-radius:12px;border:1px solid var(--border);background:#fff;cursor:pointer}
+    .btn.primary{background:#0f172a;color:#fff;border-color:#0f172a}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    input,select,textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:12px;background:#fff}
+    table{width:100%;border-collapse:collapse} th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+    .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
+    .flex{display:flex;gap:8px;align-items:center} .space{height:8px}
+    .right{margin-left:auto}
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;place-items:center;padding:16px}
+    .modal.open{display:grid}
+    .modal>.card{max-width:640px;width:100%}
+    canvas{width:100%;height:360px;border:1px solid var(--border);border-radius:12px;background:#fff}
+    .header{position:sticky;top:0;background:#ffffffcc;backdrop-filter:saturate(1.1) blur(6px);border-bottom:1px solid var(--border);z-index:10}
+    .header .container{display:flex;align-items:center;gap:12px;padding-top:10px;padding-bottom:10px}
+    .logo{width:36px;height:36px;border-radius:12px;background:#0f172a;color:#fff;display:grid;place-items:center;font-weight:700}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="container">
+      <div class="logo">L</div>
+      <div>
+        <h1>실험 데이터 수집 · 반별 시각화<small> (오프라인)</small></h1>
+        <small>학생 입력 → 표 누적 → 그래프 생성 (인터넷 없이 동작)</small>
+      </div>
+      <span class="right"></span>
+      <button id="helpBtn" class="btn">? 도움말</button>
+      <button id="fieldsBtn" class="btn">✚ 필드 설정</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="row">
+      <section class="card">
+        <div class="flex" style="justify-content:space-between">
+          <h2>데이터 입력</h2>
+          <div class="flex">
+            <select id="classSelect"></select>
+          </div>
+        </div>
+        <div class="space"></div>
+        <form id="inputForm">
+          <div class="flex" style="gap:12px">
+            <div style="flex:1">
+              <small>모둠</small>
+              <input id="groupInput" placeholder="예: 3" />
+            </div>
+            <div style="flex:1">
+              <small>이름</small>
+              <input id="studentInput" placeholder="예: 김학생" />
+            </div>
+          </div>
+          <div id="dynamicFields" class="flex" style="flex-wrap:wrap;gap:12px;margin-top:12px"></div>
+          <div class="space"></div>
+          <div class="flex">
+            <button class="btn primary" type="submit">제출</button>
+            <button class="btn" type="button" id="resetBtn">초기화</button>
+          </div>
+          <small id="storageMode" style="display:block;margin-top:8px;color:var(--muted)">현재 저장 방식: 브라우저 저장소</small>
+        </form>
+
+        <div class="space"></div><div class="space"></div>
+        <h3 style="margin:0 0 8px">반 관리</h3>
+        <div class="flex">
+          <input id="newClassInput" placeholder="새 반(예: 1-3, 2-1)" />
+          <button class="btn" id="addClassBtn">추가</button>
+        </div>
+        <div id="classChips" class="flex" style="flex-wrap:wrap;margin-top:8px"></div>
+      </section>
+
+      <section>
+        <div class="card">
+          <div class="flex" style="justify-content:space-between">
+            <h2>데이터 표 (<span id="currentClassLabel"></span>)</h2>
+            <div class="flex">
+              <button class="btn" id="exportBtn">CSV 내보내기</button>
+              <button class="btn" id="clearBtn">이 반 데이터 초기화</button>
+            </div>
+          </div>
+          <div class="space"></div>
+          <div style="overflow:auto;border:1px solid var(--border);border-radius:12px">
+            <table id="dataTable"></table>
+          </div>
+        </div>
+
+        <div class="space"></div>
+
+        <div class="card">
+          <div class="flex" style="justify-content:space-between">
+            <h2>시각화</h2>
+            <small class="muted">그래프는 선택 반의 데이터만 사용합니다.</small>
+          </div>
+          <div class="space"></div>
+          <div class="row" style="grid-template-columns:260px 1fr">
+            <div class="card" style="padding:12px">
+              <div style="display:grid;gap:8px">
+                <label><small>차트 유형</small>
+                  <select id="chartType">
+                    <option value="bar">막대</option>
+                    <option value="line">꺾은선</option>
+                    <option value="scatter">산점도</option>
+                  </select>
+                </label>
+                <div id="groupOptions">
+                  <label><small>집계 기준</small>
+                    <select id="groupBy"></select>
+                  </label>
+                  <label><small>집계 값(Y)</small>
+                    <select id="yField"></select>
+                  </label>
+                  <label><small>집계 방식</small>
+                    <select id="agg">
+                      <option value="mean">평균</option>
+                      <option value="sum">합</option>
+                      <option value="min">최솟값</option>
+                      <option value="max">최댓값</option>
+                      <option value="count">개수</option>
+                    </select>
+                  </label>
+                </div>
+                <div id="scatterOptions" style="display:none">
+                  <label><small>X축(숫자)</small>
+                    <select id="xField"></select>
+                  </label>
+                  <label><small>Y축(숫자)</small>
+                    <select id="yFieldScatter"></select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div>
+              <canvas id="chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 도움말 모달 -->
+  <div class="modal" id="helpModal">
+    <div class="card">
+      <h2>빠른 안내</h2>
+      <ol>
+        <li>상단 <b>✚ 필드 설정</b>에서 측정 항목(숫자/텍스트)을 추가합니다.</li>
+        <li>학생은 반/모둠/이름과 측정 값을 입력 후 <b>제출</b>합니다.</li>
+        <li>중앙 표에 누적되고, <b>시각화</b>에서 그래프 유형/축/집계를 선택합니다.</li>
+        <li>이 오프라인 버전은 인터넷 없이 동작하며, 데이터는 이 기기의 브라우저에 저장됩니다.</li>
+      </ol>
+      <div class="flex" style="justify-content:flex-end"><button class="btn" id="helpClose">닫기</button></div>
+    </div>
+  </div>
+
+  <!-- 필드 설정 모달 -->
+  <div class="modal" id="fieldsModal">
+    <div class="card">
+      <h2>필드 설정(교사용)</h2>
+      <div id="fieldsList" style="margin-top:8px;display:grid;gap:8px"></div>
+      <div class="flex" style="margin-top:8px">
+        <button class="btn" id="addNumberField">+ 숫자 필드</button>
+        <button class="btn" id="addTextField">+ 텍스트 필드</button>
+        <span class="right"></span>
+        <button class="btn" id="fieldsClose">완료</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const LS_KEYS = {
+      records: "lab_records_v1",
+      fields: "lab_fields_v1",
+      classes: "lab_classes_v1",
+    };
+    const DEFAULT_CLASSES = ["1-6","1-7","1-8","1-9","1-10"];
+    const $ = (sel)=>document.querySelector(sel);
+    const $$ = (sel)=>Array.from(document.querySelectorAll(sel));
+    const uid = ()=> Date.now() + "_" + Math.random().toString(36).slice(2,9);
+    const saveLS = (k,v)=> localStorage.setItem(k, JSON.stringify(v));
+    const loadLS = (k,fb)=>{ try{ const x=JSON.parse(localStorage.getItem(k)||"null"); return x??fb; }catch(e){ return fb; } };
+
+    let classes = loadLS(LS_KEYS.classes, DEFAULT_CLASSES);
+    let selectedClass = classes[0] || "1-1";
+    let fields = loadLS(LS_KEYS.fields, [{ id: uid(), name: "측정값", type: "number" }]);
+    let records = loadLS(LS_KEYS.records, []);
+
+    // --- UI refs
+    const classSelect = $("#classSelect");
+    const currentClassLabel = $("#currentClassLabel");
+    const groupInput = $("#groupInput");
+    const studentInput = $("#studentInput");
+    const dynamicFields = $("#dynamicFields");
+    const dataTable = $("#dataTable");
+    const chartCanvas = $("#chart");
+    const exportBtn = $("#exportBtn");
+    const clearBtn = $("#clearBtn");
+    const addClassBtn = $("#addClassBtn");
+    const newClassInput = $("#newClassInput");
+    const classChips = $("#classChips");
+    const chartTypeSel = $("#chartType");
+    const groupBySel = $("#groupBy");
+    const yFieldSel = $("#yField");
+    const aggSel = $("#agg");
+    const xFieldSel = $("#xField");
+    const yFieldScatterSel = $("#yFieldScatter");
+    const groupOptions = $("#groupOptions");
+    const scatterOptions = $("#scatterOptions");
+    const inputForm = $("#inputForm");
+    const resetBtn = $("#resetBtn");
+    const helpBtn = $("#helpBtn");
+    const helpModal = $("#helpModal");
+    const helpClose = $("#helpClose");
+    const fieldsBtn = $("#fieldsBtn");
+    const fieldsModal = $("#fieldsModal");
+    const fieldsList = $("#fieldsList");
+    const addNumberField = $("#addNumberField");
+    const addTextField = $("#addTextField");
+    const storageMode = $("#storageMode");
+
+    // --- State for chart controls
+    let chartType = "bar";
+    let groupBy = "groupId"; // groupId | student | classId | textFieldName
+    let yField = fields.find(f=>f.type==="number")?.name || "측정값";
+    let xField = yField;
+    let agg = "mean";
+
+    // --- Render helpers
+    function renderClassSelect(){
+      classSelect.innerHTML = classes.map(c=>`<option value="${c}">${c}</option>`).join("");
+      classSelect.value = selectedClass;
+      currentClassLabel.textContent = "선택 반: " + selectedClass;
+      classChips.innerHTML = classes.map(c=>`<span class="pill">${c}<button class="btn" style="padding:2px 6px" data-remove-class="${c}">×</button></span>`).join(" ");
+      classChips.querySelectorAll("[data-remove-class]").forEach(btn=>{
+        btn.onclick = ()=>{
+          const c = btn.getAttribute("data-remove-class");
+          if(!confirm(c+" 반을 목록에서 제거할까요? (데이터는 삭제되지 않습니다)")) return;
+          classes = classes.filter(x=>x!==c);
+          saveLS(LS_KEYS.classes, classes);
+          if(selectedClass===c) selectedClass = classes[0]||"";
+          renderAll();
+        };
+      });
+    }
+
+    function renderDynamicFields(){
+      dynamicFields.innerHTML = fields.map(f=>{
+        const type = f.type==="number" ? "number" : "text";
+        const suffix = f.type==="number" ? " (숫자)" : "";
+        return `<div style="flex:1 1 220px">
+          <small>${escapeHtml(f.name)}${suffix}</small>
+          <input data-field="${f.id}" type="${type}" step="any" />
+        </div>`;
+      }).join("");
+    }
+
+    function renderTable(){
+      const visible = records.filter(r=>r.classId===selectedClass);
+      const header = ["시간","반","모둠","이름", ...fields.map(f=>f.name) ];
+      let html = "<thead><tr>"+ header.map(h=>`<th>${escapeHtml(h)}</th>`).join("") + "</tr></thead>";
+      html += "<tbody>";
+      if(visible.length===0){
+        html += `<tr><td colspan="${header.length}" style="color:var(--muted)">아직 데이터가 없습니다. 좌측 폼에서 제출해 보세요.</td></tr>`;
+      } else {
+        for(const r of visible){
+          html += "<tr>";
+          html += `<td>${new Date(r.timestamp).toLocaleString()}</td>`;
+          html += `<td>${escapeHtml(r.classId||"")}</td>`;
+          html += `<td>${escapeHtml(r.groupId||"")}</td>`;
+          html += `<td>${escapeHtml(r.student||"")}</td>`;
+          for(const f of fields){
+            const v = r.values?.[f.name];
+            html += `<td>${v==null?"":escapeHtml(String(v))}</td>`;
+          }
+          html += "</tr>";
+        }
+      }
+      html += "</tbody>";
+      dataTable.innerHTML = html;
+    }
+
+    function renderChartControls(){
+      // groupBy options
+      const textFields = fields.filter(f=>f.type==="text").map(f=>f.name);
+      groupBySel.innerHTML = ["groupId","student","classId", ...textFields].map(k=>{
+        const label = k==="groupId"?"모둠": k==="student"?"이름": k==="classId"?"반": k;
+        return `<option value="${k}">${escapeHtml(label)}</option>`;
+      }).join("");
+      groupBySel.value = groupBy;
+      // yField numeric
+      const numeric = fields.filter(f=>f.type==="number").map(f=>f.name);
+      yFieldSel.innerHTML = numeric.map(n=>`<option value="${n}">${escapeHtml(n)}</option>`).join("");
+      if(!numeric.includes(yField)) yField = numeric[0] || "측정값";
+      yFieldSel.value = yField;
+      // scatter numeric x/y
+      xFieldSel.innerHTML = numeric.map(n=>`<option value="${n}">${escapeHtml(n)}</option>`).join("");
+      yFieldScatterSel.innerHTML = xFieldSel.innerHTML;
+      if(!numeric.includes(xField)) xField = numeric[0] || "측정값";
+      xFieldSel.value = xField;
+      if(!numeric.includes(yField)) yField = numeric[0] || "측정값";
+      yFieldScatterSel.value = yField;
+      // toggle groups
+      groupOptions.style.display = chartType==="scatter" ? "none" : "block";
+      scatterOptions.style.display = chartType==="scatter" ? "block" : "none";
+    }
+
+    function aggregate(data, byKey, valueKey, agg){
+      if(!byKey) return [];
+      const groups = new Map();
+      for(const r of data){
+        const key = (byKey==="classId"||byKey==="groupId"||byKey==="student") ? r[byKey] : (r.values?.[byKey]);
+        const v = valueKey==="count" ? 1 : r.values?.[valueKey];
+        if(!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(v);
+      }
+      const out = [];
+      for(const [k,arr] of groups){
+        if(!arr || arr.length===0) continue;
+        let val=null;
+        const nums = arr.map(x=> x==null ? NaN : Number(x)).filter(x=>!Number.isNaN(x));
+        switch(agg){
+          case "count": val = arr.length; break;
+          case "sum": val = nums.reduce((a,b)=>a+b,0); break;
+          case "min": val = Math.min(...nums); break;
+          case "max": val = Math.max(...nums); break;
+          case "mean":
+          default: val = nums.reduce((a,b)=>a+b,0) / (nums.length||1);
+        }
+        out.push({label: String(k), value: val});
+      }
+      return out;
+    }
+
+    function drawChart(){
+      const ctx = chartCanvas.getContext("2d");
+      const W = chartCanvas.width = chartCanvas.clientWidth * window.devicePixelRatio;
+      const H = chartCanvas.height = chartCanvas.clientHeight * window.devicePixelRatio;
+      ctx.clearRect(0,0,W,H);
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      // padding
+      const pad = {l:40, r:20, t:20, b:36};
+      const plotW = chartCanvas.clientWidth - pad.l - pad.r;
+      const plotH = chartCanvas.clientHeight - pad.t - pad.b;
+
+      // data
+      const visible = records.filter(r=>r.classId===selectedClass);
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "12px system-ui";
+
+      if(chartType==="scatter"){
+        const points = visible.map(r=> ({
+          x: r.values?.[xField],
+          y: r.values?.[yField],
+          name: r.groupId || r.student || r.classId
+        })).filter(p=> typeof p.x==="number" && typeof p.y==="number");
+        if(points.length===0){ drawNoData(ctx); return; }
+        const xMin = Math.min(...points.map(p=>p.x)), xMax = Math.max(...points.map(p=>p.x));
+        const yMin = Math.min(...points.map(p=>p.y)), yMax = Math.max(...points.map(p=>p.y));
+        // axes
+        axes(ctx, pad, plotW, plotH, xMin, xMax, yMin, yMax, xField, yField);
+        ctx.fillStyle = "#0ea5e9";
+        for(const p of points){
+          const x = pad.l + (p.x - xMin) / (xMax - xMin || 1) * plotW;
+          const y = pad.t + (1 - (p.y - yMin) / (yMax - yMin || 1)) * plotH;
+          ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+        }
+        return;
+      }
+
+      // bar/line
+      const data = aggregate(visible, groupBy, yField, agg);
+      if(data.length===0){ drawNoData(ctx); return; }
+      const vMax = Math.max(...data.map(d=>d.value), 0);
+      const vMin = Math.min(0, Math.min(...data.map(d=>d.value)));
+      axes(ctx, pad, plotW, plotH, 0, data.length-1, vMin, vMax, "", yField);
+
+      if(chartType==="bar"){
+        const bw = plotW / Math.max(1, data.length);
+        ctx.fillStyle = "#0ea5e9";
+        data.forEach((d,i)=>{
+          const x = pad.l + i * bw + bw*0.15;
+          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
+          const h = pad.t + plotH - y;
+          ctx.fillRect(x, y, bw*0.7, h);
+          // labels
+          ctx.save();
+          ctx.translate(x + bw*0.35, pad.t + plotH + 14);
+          ctx.rotate(-Math.PI/8);
+          ctx.fillStyle = "#334155";
+          ctx.textAlign = "center";
+          ctx.fillText(truncate(d.label, 12), 0, 0);
+          ctx.restore();
+        });
+      } else if(chartType==="line"){
+        ctx.strokeStyle = "#0ea5e9"; ctx.lineWidth = 2;
+        ctx.beginPath();
+        data.forEach((d,i)=>{
+          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
+          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
+          if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
+        ctx.stroke();
+        ctx.fillStyle = "#0ea5e9";
+        data.forEach((d,i)=>{
+          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
+          const y = pad.t + (1 - (d.value - vMin) / (vMax - vMin || 1)) * plotH;
+          ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+        });
+        // x labels
+        ctx.fillStyle = "#334155";
+        data.forEach((d,i)=>{
+          const x = pad.l + (i/(data.length-1 || 1)) * plotW;
+          ctx.save();
+          ctx.translate(x, pad.t + plotH + 14);
+          ctx.rotate(-Math.PI/8);
+          ctx.textAlign="center";
+          ctx.fillText(truncate(d.label, 12), 0, 0);
+          ctx.restore();
+        });
+      }
+    }
+
+    function axes(ctx, pad, plotW, plotH, xMin, xMax, yMin, yMax, xLabel, yLabel){
+      // frame
+      ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;
+      ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+      // ticks Y
+      ctx.fillStyle = "#64748b"; ctx.strokeStyle="#e2e8f0";
+      const ticks = 5;
+      for(let i=0;i<=ticks;i++){
+        const y = pad.t + (i/ticks) * plotH;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + plotW, y); ctx.stroke();
+        const v = yMax - (i/ticks)*(yMax - yMin);
+        ctx.fillText(formatNumber(v), 6, y+4);
+      }
+      // labels
+      if(yLabel){ ctx.fillText(yLabel, 6, pad.t-6); }
+      if(xLabel){ ctx.fillText(xLabel, pad.l + plotW - 50, pad.t + plotH + 28); }
+    }
+
+    function drawNoData(ctx){
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "14px system-ui";
+      ctx.fillText("표시할 데이터가 없습니다.", 16, 28);
+    }
+
+    function formatNumber(n){
+      if(!isFinite(n)) return "0";
+      const abs = Math.abs(n);
+      if(abs>=1e6) return (n/1e6).toFixed(1)+"M";
+      if(abs>=1e3) return (n/1e3).toFixed(1)+"k";
+      return String(Math.round(n*100)/100);
+    }
+    function truncate(s, n){ return (s.length>n)? s.slice(0,n-1)+"…" : s; }
+    function escapeHtml(s){ return s.replace(/[&<>\"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
+
+    // --- Event wiring
+    classSelect.onchange = ()=>{ selectedClass = classSelect.value; renderAll(); };
+    $("#exportBtn").onclick = ()=>{
+      const visible = records.filter(r=>r.classId===selectedClass);
+      if(!visible.length){ alert("내보낼 데이터가 없습니다."); return; }
+      const headers = ["시간","반","모둠","이름", ...fields.map(f=>f.name)];
+      const rows = [headers.join(",")];
+      for(const r of visible){
+        const row = [
+          JSON.stringify(new Date(r.timestamp).toLocaleString()),
+          JSON.stringify(r.classId||""),
+          JSON.stringify(r.groupId||""),
+          JSON.stringify(r.student||"")
+        ];
+        for(const f of fields) row.push(JSON.stringify(r.values?.[f.name] ?? ""));
+        rows.push(row.join(","));
+      }
+      const blob = new Blob([rows.join("\\n")], {type:"text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `records_${selectedClass}.csv`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    };
+    $("#clearBtn").onclick = ()=>{
+      if(!confirm("이 반의 로컬 데이터를 모두 삭제할까요?")) return;
+      records = records.filter(r=>r.classId!==selectedClass);
+      saveLS(LS_KEYS.records, records);
+      renderAll();
+    };
+    $("#addClassBtn").onclick = ()=>{
+      const c = (newClassInput.value||"").trim();
+      if(!c) return;
+      if(classes.includes(c)) return alert("이미 있는 반입니다.");
+      classes.push(c);
+      saveLS(LS_KEYS.classes, classes);
+      selectedClass = c;
+      newClassInput.value = "";
+      renderAll();
+    };
+
+    inputForm.onsubmit = (e)=>{
+      e.preventDefault();
+      // Validate numeric fields
+      for(const f of fields){
+        if(f.type==="number"){
+          const el = dynamicFields.querySelector(`[data-field="${f.id}"]`);
+          const raw = el.value;
+          if(raw!=="" && isNaN(Number(raw))){ alert("'" + f.name + "'에는 숫자를 입력하세요."); return; }
+        }
+      }
+      const rec = {
+        id: uid(),
+        timestamp: Date.now(),
+        classId: selectedClass,
+        groupId: groupInput.value || "",
+        student: studentInput.value || "",
+        values: fields.reduce((acc,f)=>{
+          const el = dynamicFields.querySelector(`[data-field="${f.id}"]`);
+          const raw = el.value;
+          acc[f.name] = f.type==="number" ? (raw===""? null : Number(raw)) : (raw || "");
+          return acc;
+        }, {}),
+      };
+      records.push(rec);
+      saveLS(LS_KEYS.records, records);
+      // reset
+      inputForm.reset();
+      renderAll();
+    };
+    resetBtn.onclick = ()=> inputForm.reset();
+
+    helpBtn.onclick = ()=> helpModal.classList.add("open");
+    helpClose.onclick = ()=> helpModal.classList.remove("open");
+    fieldsBtn.onclick = ()=> { renderFieldsModal(); fieldsModal.classList.add("open"); };
+    $("#fieldsClose").onclick = ()=> fieldsModal.classList.remove("open");
+    addNumberField.onclick = ()=> addField("number");
+    addTextField.onclick = ()=> addField("text");
+
+    function addField(type){
+      const name = prompt("필드 이름을 입력하세요 (예: 온도, 질량, 조건)");
+      if(!name) return;
+      fields.push({ id: uid(), name, type });
+      saveLS(LS_KEYS.fields, fields);
+      renderAll();
+    }
+    function renderFieldsModal(){
+      fieldsList.innerHTML = fields.map(f=>`
+        <div class="flex" style="justify-content:space-between;border:1px solid var(--border);padding:8px;border-radius:12px">
+          <div><b>${escapeHtml(f.name)}</b> <small style="color:var(--muted)">(${f.type})</small></div>
+          <div class="flex">
+            <button class="btn" data-rename="${f.id}">이름변경</button>
+            <button class="btn" data-remove="${f.id}">삭제</button>
+          </div>
+        </div>
+      `).join("");
+      fieldsList.querySelectorAll("[data-rename]").forEach(b=>{
+        b.onclick = ()=>{
+          const id = b.getAttribute("data-rename");
+          const f = fields.find(x=>x.id===id);
+          const name = prompt("새 필드 이름", f.name);
+          if(!name) return;
+          f.name = name;
+          saveLS(LS_KEYS.fields, fields);
+          renderAll();
+          renderFieldsModal();
+        };
+      });
+      fieldsList.querySelectorAll("[data-remove]").forEach(b=>{
+        b.onclick = ()=>{
+          const id = b.getAttribute("data-remove");
+          if(!confirm("이 필드를 삭제할까요? 기존 데이터의 해당 컬럼은 비게 됩니다.")) return;
+          fields = fields.filter(x=>x.id!==id);
+          saveLS(LS_KEYS.fields, fields);
+          renderAll();
+          renderFieldsModal();
+        };
+      });
+    }
+
+    // Chart control events
+    chartTypeSel.onchange = ()=>{ chartType = chartTypeSel.value; renderChartControls(); drawChart(); };
+    groupBySel.onchange = ()=>{ groupBy = groupBySel.value; drawChart(); };
+    yFieldSel.onchange = ()=>{ yField = yFieldSel.value; drawChart(); };
+    aggSel.onchange = ()=>{ agg = aggSel.value; drawChart(); };
+    xFieldSel.onchange = ()=>{ xField = xFieldSel.value; drawChart(); };
+    yFieldScatterSel.onchange = ()=>{ yField = yFieldScatterSel.value; drawChart(); };
+    window.addEventListener("resize", drawChart);
+
+    function renderAll(){
+      renderClassSelect();
+      renderDynamicFields();
+      renderTable();
+      renderChartControls();
+      drawChart();
+      storageMode.textContent = "현재 저장 방식: 브라우저 저장소(오프라인)";
+    }
+
+    renderAll();
+  </script>
+</body>
+</html>
